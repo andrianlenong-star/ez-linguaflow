@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Allow: /assets/
+Disallow: /api/
+
+Sitemap: https://ez-linguaflow-j4sf.vercel.app/sitemap.xml

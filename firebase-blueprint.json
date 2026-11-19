@@ -1,0 +1,563 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user account profile containing PII isolated strictly to the owning authenticated user.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID matching the document ID."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 320,
+          "description": "User email address (PII)."
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Display name shown in Web and Android headers."
+        },
+        "photoUrl": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "Optional avatar URL."
+        },
+        "platformLastSeen": {
+          "type": "string",
+          "enum": ["web", "android", "shared"],
+          "maxLength": 16,
+          "description": "Last active client platform."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": ["uid", "email", "displayName", "platformLastSeen", "createdAt", "updatedAt"]
+    },
+    "UserPreferences": {
+      "title": "UserPreferences",
+      "description": "Cross-device synchronized translation defaults, theme, TTS voice/speed, and custom languages.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["light", "dark"],
+          "maxLength": 16
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["gemini", "deepl"],
+          "maxLength": 16
+        },
+        "autoTranslate": {
+          "type": "boolean"
+        },
+        "autoSaveHistory": {
+          "type": "boolean"
+        },
+        "defaultSourceLang": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "defaultTargetLang": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "defaultTone": {
+          "type": "string",
+          "enum": ["natural", "formal", "informal", "professional", "academic", "business", "casual", "technical", "custom"],
+          "maxLength": 32
+        },
+        "defaultFormality": {
+          "type": "string",
+          "enum": ["default", "more_formal", "less_formal"],
+          "maxLength": 32
+        },
+        "ttsVoice": {
+          "type": "string",
+          "enum": ["Kore", "Puck", "Charon", "Fenrir", "Zephyr"],
+          "maxLength": 32
+        },
+        "ttsSpeed": {
+          "type": "number"
+        },
+        "showPrivacyNotice": {
+          "type": "boolean"
+        },
+        "customLanguages": {
+          "type": "array",
+          "description": "Up to 50 user-registered custom language configurations."
+        },
+        "updatedAtMs": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "userId",
+        "theme",
+        "provider",
+        "autoTranslate",
+        "autoSaveHistory",
+        "defaultSourceLang",
+        "defaultTargetLang",
+        "defaultTone",
+        "defaultFormality",
+        "ttsVoice",
+        "ttsSpeed",
+        "showPrivacyNotice",
+        "customLanguages",
+        "updatedAtMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "HistoryEntry": {
+      "title": "HistoryEntry",
+      "description": "Synchronized translation history entry shared across Web and Android.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sourceText": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50000
+        },
+        "translatedText": {
+          "type": "string",
+          "maxLength": 50000
+        },
+        "sourceLang": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "detectedSourceLang": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "targetLang": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "tone": {
+          "type": "string",
+          "enum": ["natural", "formal", "informal", "professional", "academic", "business", "casual", "technical", "custom"],
+          "maxLength": 32
+        },
+        "context": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["gemini", "deepl"],
+          "maxLength": 16
+        },
+        "favorite": {
+          "type": "boolean"
+        },
+        "saved": {
+          "type": "boolean"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "createdAtMs": {
+          "type": "number"
+        },
+        "updatedAtMs": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "sourceText",
+        "translatedText",
+        "sourceLang",
+        "targetLang",
+        "tone",
+        "provider",
+        "favorite",
+        "saved",
+        "deleted",
+        "createdAtMs",
+        "updatedAtMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SavedTranslation": {
+      "title": "SavedTranslation",
+      "description": "Bookmarked/saved translation phrasebook item synchronized across Web and Android.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sourceText": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50000
+        },
+        "translatedText": {
+          "type": "string",
+          "maxLength": 50000
+        },
+        "sourceLang": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "detectedSourceLang": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "targetLang": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "tone": {
+          "type": "string",
+          "enum": ["natural", "formal", "informal", "professional", "academic", "business", "casual", "technical", "custom"],
+          "maxLength": 32
+        },
+        "context": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["gemini", "deepl"],
+          "maxLength": 16
+        },
+        "tags": {
+          "type": "array",
+          "description": "Up to 20 short category tags."
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "createdAtMs": {
+          "type": "number"
+        },
+        "updatedAtMs": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "sourceText",
+        "translatedText",
+        "sourceLang",
+        "targetLang",
+        "tone",
+        "provider",
+        "tags",
+        "deleted",
+        "createdAtMs",
+        "updatedAtMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "GlossaryDoc": {
+      "title": "GlossaryDoc",
+      "description": "User-owned bilingual glossary with bounded term pairs enforced consistently by translators.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "sourceLang": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "targetLang": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "terms": {
+          "type": "array",
+          "description": "Bounded array of up to 500 glossary term mappings."
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "updatedAtMs": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "name",
+        "sourceLang",
+        "targetLang",
+        "enabled",
+        "terms",
+        "deleted",
+        "updatedAtMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "StyleProfileDoc": {
+      "title": "StyleProfileDoc",
+      "description": "Reusable translation tone, formality, writing style, and terminology profile.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "tone": {
+          "type": "string",
+          "enum": ["natural", "formal", "informal", "professional", "academic", "business", "casual", "technical", "custom"],
+          "maxLength": 32
+        },
+        "formality": {
+          "type": "string",
+          "enum": ["default", "more_formal", "less_formal"],
+          "maxLength": 32
+        },
+        "writingStyle": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "preferredTerminology": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "customInstructions": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "isDefault": {
+          "type": "boolean"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "updatedAtMs": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "name",
+        "tone",
+        "formality",
+        "writingStyle",
+        "preferredTerminology",
+        "customInstructions",
+        "isDefault",
+        "deleted",
+        "updatedAtMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ConversationSessionDoc": {
+      "title": "ConversationSessionDoc",
+      "description": "Saved turn-based bilingual voice conversation session synchronized across Web and Android.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "speaker1Lang": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "speaker2Lang": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "turns": {
+          "type": "array",
+          "description": "Bounded array of up to 200 conversation transcript turns."
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "updatedAtMs": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "title",
+        "speaker1Lang",
+        "speaker2Lang",
+        "turns",
+        "deleted",
+        "updatedAtMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user account profile isolated to the authenticated owner."
+    },
+    "/users/{userId}/preferences/{prefId}": {
+      "schema": { "$ref": "#/entities/UserPreferences" },
+      "description": "User translation defaults, theme, TTS settings, and custom languages."
+    },
+    "/users/{userId}/history/{historyId}": {
+      "schema": { "$ref": "#/entities/HistoryEntry" },
+      "description": "Per-user translation history entries synchronized between Web and Android."
+    },
+    "/users/{userId}/savedTranslations/{savedId}": {
+      "schema": { "$ref": "#/entities/SavedTranslation" },
+      "description": "Per-user saved/bookmarked translations synchronized between Web and Android."
+    },
+    "/users/{userId}/glossaries/{glossaryId}": {
+      "schema": { "$ref": "#/entities/GlossaryDoc" },
+      "description": "Per-user bilingual glossaries synchronized between Web and Android."
+    },
+    "/users/{userId}/styleProfiles/{profileId}": {
+      "schema": { "$ref": "#/entities/StyleProfileDoc" },
+      "description": "Per-user translation style and tone presets synchronized between Web and Android."
+    },
+    "/users/{userId}/conversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/ConversationSessionDoc" },
+      "description": "Per-user bilingual voice conversation sessions synchronized between Web and Android."
+    }
+  }
+}

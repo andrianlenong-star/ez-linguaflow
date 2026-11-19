@@ -1,0 +1,428 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Security Primitives
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isEmailVerified() && request.auth.uid == userId;
+    }
+
+    function parentUserExists(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId));
+    }
+
+    function isValidTone(tone) {
+      return tone is string &&
+        tone in ['natural', 'formal', 'informal', 'professional', 'academic', 'business', 'casual', 'technical', 'custom'];
+    }
+
+    function isValidFormality(formality) {
+      return formality is string && formality in ['default', 'more_formal', 'less_formal'];
+    }
+
+    function isValidProvider(provider) {
+      return provider is string && provider in ['gemini', 'deepl'];
+    }
+
+    function isValidVoice(voice) {
+      return voice is string && voice in ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'];
+    }
+
+    // 3. Entity Validation Blueprints (Called on BOTH create and update)
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'platformLastSeen', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'photoUrl', 'platformLastSeen', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 320
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 2048))
+        && data.platformLastSeen is string && data.platformLastSeen in ['web', 'android', 'shared']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPreferences(data, userId) {
+      return data.keys().hasAll([
+          'userId', 'theme', 'provider', 'autoTranslate', 'autoSaveHistory',
+          'defaultSourceLang', 'defaultTargetLang', 'defaultTone', 'defaultFormality',
+          'ttsVoice', 'ttsSpeed', 'showPrivacyNotice', 'customLanguages',
+          'updatedAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'userId', 'theme', 'provider', 'autoTranslate', 'autoSaveHistory',
+          'defaultSourceLang', 'defaultTargetLang', 'defaultTone', 'defaultFormality',
+          'ttsVoice', 'ttsSpeed', 'showPrivacyNotice', 'customLanguages',
+          'updatedAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.userId is string && data.userId == userId
+        && data.theme is string && data.theme in ['light', 'dark']
+        && isValidProvider(data.provider)
+        && data.autoTranslate is bool
+        && data.autoSaveHistory is bool
+        && data.defaultSourceLang is string && data.defaultSourceLang.size() >= 1 && data.defaultSourceLang.size() <= 32
+        && data.defaultTargetLang is string && data.defaultTargetLang.size() >= 1 && data.defaultTargetLang.size() <= 32
+        && isValidTone(data.defaultTone)
+        && isValidFormality(data.defaultFormality)
+        && isValidVoice(data.ttsVoice)
+        && (data.ttsSpeed is number && data.ttsSpeed >= 0.5 && data.ttsSpeed <= 2.0)
+        && data.showPrivacyNotice is bool
+        && data.customLanguages is list && data.customLanguages.size() <= 50
+        && (data.customLanguages.size() == 0 || data.customLanguages[0] is map)
+        && data.updatedAtMs is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidHistoryEntry(data, userId, historyId) {
+      return data.keys().hasAll([
+          'id', 'userId', 'sourceText', 'translatedText', 'sourceLang', 'targetLang',
+          'tone', 'provider', 'favorite', 'saved', 'deleted', 'createdAtMs', 'updatedAtMs',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userId', 'sourceText', 'translatedText', 'sourceLang', 'detectedSourceLang',
+          'targetLang', 'tone', 'context', 'provider', 'favorite', 'saved', 'deleted',
+          'createdAtMs', 'updatedAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == historyId && isValidId(data.id)
+        && data.userId is string && data.userId == userId
+        && data.sourceText is string && data.sourceText.size() >= 1 && data.sourceText.size() <= 50000
+        && data.translatedText is string && data.translatedText.size() <= 50000
+        && data.sourceLang is string && data.sourceLang.size() >= 1 && data.sourceLang.size() <= 32
+        && (!('detectedSourceLang' in data) || (data.detectedSourceLang is string && data.detectedSourceLang.size() <= 32))
+        && data.targetLang is string && data.targetLang.size() >= 1 && data.targetLang.size() <= 32
+        && isValidTone(data.tone)
+        && (!('context' in data) || (data.context is string && data.context.size() <= 500))
+        && isValidProvider(data.provider)
+        && data.favorite is bool
+        && data.saved is bool
+        && data.deleted is bool
+        && data.createdAtMs is number
+        && data.updatedAtMs is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSavedTranslation(data, userId, savedId) {
+      return data.keys().hasAll([
+          'id', 'userId', 'sourceText', 'translatedText', 'sourceLang', 'targetLang',
+          'tone', 'provider', 'tags', 'deleted', 'createdAtMs', 'updatedAtMs',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userId', 'sourceText', 'translatedText', 'sourceLang', 'detectedSourceLang',
+          'targetLang', 'tone', 'context', 'provider', 'tags', 'deleted',
+          'createdAtMs', 'updatedAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == savedId && isValidId(data.id)
+        && data.userId is string && data.userId == userId
+        && data.sourceText is string && data.sourceText.size() >= 1 && data.sourceText.size() <= 50000
+        && data.translatedText is string && data.translatedText.size() <= 50000
+        && data.sourceLang is string && data.sourceLang.size() >= 1 && data.sourceLang.size() <= 32
+        && (!('detectedSourceLang' in data) || (data.detectedSourceLang is string && data.detectedSourceLang.size() <= 32))
+        && data.targetLang is string && data.targetLang.size() >= 1 && data.targetLang.size() <= 32
+        && isValidTone(data.tone)
+        && (!('context' in data) || (data.context is string && data.context.size() <= 500))
+        && isValidProvider(data.provider)
+        && data.tags is list && data.tags.size() <= 20
+        && (data.tags.size() == 0 || data.tags[0] is string)
+        && data.deleted is bool
+        && data.createdAtMs is number
+        && data.updatedAtMs is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGlossaryDoc(data, userId, glossaryId) {
+      return data.keys().hasAll([
+          'id', 'userId', 'name', 'sourceLang', 'targetLang', 'enabled',
+          'terms', 'deleted', 'updatedAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userId', 'name', 'sourceLang', 'targetLang', 'enabled',
+          'terms', 'deleted', 'updatedAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == glossaryId && isValidId(data.id)
+        && data.userId is string && data.userId == userId
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.sourceLang is string && data.sourceLang.size() >= 1 && data.sourceLang.size() <= 32
+        && data.targetLang is string && data.targetLang.size() >= 1 && data.targetLang.size() <= 32
+        && data.enabled is bool
+        && data.terms is list && data.terms.size() <= 500
+        && (data.terms.size() == 0 || data.terms[0] is map)
+        && data.deleted is bool
+        && data.updatedAtMs is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStyleProfileDoc(data, userId, profileId) {
+      return data.keys().hasAll([
+          'id', 'userId', 'name', 'tone', 'formality', 'writingStyle',
+          'preferredTerminology', 'customInstructions', 'isDefault',
+          'deleted', 'updatedAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userId', 'name', 'tone', 'formality', 'writingStyle',
+          'preferredTerminology', 'customInstructions', 'isDefault',
+          'deleted', 'updatedAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == profileId && isValidId(data.id)
+        && data.userId is string && data.userId == userId
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && isValidTone(data.tone)
+        && isValidFormality(data.formality)
+        && data.writingStyle is string && data.writingStyle.size() <= 1000
+        && data.preferredTerminology is string && data.preferredTerminology.size() <= 1000
+        && data.customInstructions is string && data.customInstructions.size() <= 2000
+        && data.isDefault is bool
+        && data.deleted is bool
+        && data.updatedAtMs is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidConversationDoc(data, userId, conversationId) {
+      return data.keys().hasAll([
+          'id', 'userId', 'title', 'speaker1Lang', 'speaker2Lang', 'turns',
+          'deleted', 'updatedAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userId', 'title', 'speaker1Lang', 'speaker2Lang', 'turns',
+          'deleted', 'updatedAtMs', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == conversationId && isValidId(data.id)
+        && data.userId is string && data.userId == userId
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.speaker1Lang is string && data.speaker1Lang.size() >= 1 && data.speaker1Lang.size() <= 32
+        && data.speaker2Lang is string && data.speaker2Lang.size() >= 1 && data.speaker2Lang.size() <= 32
+        && data.turns is list && data.turns.size() <= 200
+        && (data.turns.size() == 0 || data.turns[0] is map)
+        && data.deleted is bool
+        && data.updatedAtMs is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // 4. Collection Rules (Zero-Trust Owner-Only Isolation)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'platformLastSeen', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['email', 'displayName', 'photoUrl', 'platformLastSeen', 'updatedAt'])
+        );
+      allow delete: if isValidId(userId) && isOwner(userId);
+
+      // User Preferences (default settings doc)
+      match /preferences/{prefId} {
+        allow get: if isValidId(userId) && isValidId(prefId) && isOwner(userId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(prefId)
+          && isOwner(userId)
+          && isValidUserPreferences(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+        allow update: if isValidId(userId) && isValidId(prefId)
+          && isOwner(userId)
+          && isValidUserPreferences(incoming(), userId)
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'theme', 'provider', 'autoTranslate', 'autoSaveHistory',
+              'defaultSourceLang', 'defaultTargetLang', 'defaultTone', 'defaultFormality',
+              'ttsVoice', 'ttsSpeed', 'showPrivacyNotice', 'customLanguages',
+              'updatedAtMs', 'updatedAt'
+            ])
+          )
+          && parentUserExists(userId);
+        allow delete: if isValidId(userId) && isValidId(prefId) && isOwner(userId);
+      }
+
+      // Translation History
+      match /history/{historyId} {
+        allow get: if isValidId(userId) && isValidId(historyId) && isOwner(userId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(historyId)
+          && isOwner(userId)
+          && isValidHistoryEntry(incoming(), userId, historyId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+        allow update: if isValidId(userId) && isValidId(historyId)
+          && isOwner(userId)
+          && isValidHistoryEntry(incoming(), userId, historyId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['favorite', 'saved', 'updatedAtMs', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly(['deleted', 'updatedAtMs', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly([
+              'sourceText', 'translatedText', 'sourceLang', 'detectedSourceLang',
+              'targetLang', 'tone', 'context', 'provider', 'favorite', 'saved', 'deleted',
+              'updatedAtMs', 'updatedAt'
+            ])
+          )
+          && parentUserExists(userId);
+        allow delete: if isValidId(userId) && isValidId(historyId) && isOwner(userId);
+      }
+
+      // Saved / Bookmarked Translations
+      match /savedTranslations/{savedId} {
+        allow get: if isValidId(userId) && isValidId(savedId) && isOwner(userId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(savedId)
+          && isOwner(userId)
+          && isValidSavedTranslation(incoming(), userId, savedId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+        allow update: if isValidId(userId) && isValidId(savedId)
+          && isOwner(userId)
+          && isValidSavedTranslation(incoming(), userId, savedId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['tags', 'context', 'updatedAtMs', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly(['deleted', 'updatedAtMs', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly([
+              'sourceText', 'translatedText', 'sourceLang', 'detectedSourceLang',
+              'targetLang', 'tone', 'context', 'provider', 'tags', 'deleted',
+              'updatedAtMs', 'updatedAt'
+            ])
+          )
+          && parentUserExists(userId);
+        allow delete: if isValidId(userId) && isValidId(savedId) && isOwner(userId);
+      }
+
+      // Glossaries
+      match /glossaries/{glossaryId} {
+        allow get: if isValidId(userId) && isValidId(glossaryId) && isOwner(userId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(glossaryId)
+          && isOwner(userId)
+          && isValidGlossaryDoc(incoming(), userId, glossaryId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+        allow update: if isValidId(userId) && isValidId(glossaryId)
+          && isOwner(userId)
+          && isValidGlossaryDoc(incoming(), userId, glossaryId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['enabled', 'updatedAtMs', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly(['deleted', 'updatedAtMs', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'sourceLang', 'targetLang', 'enabled', 'terms', 'deleted',
+              'updatedAtMs', 'updatedAt'
+            ])
+          )
+          && parentUserExists(userId);
+        allow delete: if isValidId(userId) && isValidId(glossaryId) && isOwner(userId);
+      }
+
+      // Style Profiles
+      match /styleProfiles/{profileId} {
+        allow get: if isValidId(userId) && isValidId(profileId) && isOwner(userId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(profileId)
+          && isOwner(userId)
+          && isValidStyleProfileDoc(incoming(), userId, profileId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+        allow update: if isValidId(userId) && isValidId(profileId)
+          && isOwner(userId)
+          && isValidStyleProfileDoc(incoming(), userId, profileId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['isDefault', 'updatedAtMs', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly(['deleted', 'updatedAtMs', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'tone', 'formality', 'writingStyle', 'preferredTerminology',
+              'customInstructions', 'isDefault', 'deleted', 'updatedAtMs', 'updatedAt'
+            ])
+          )
+          && parentUserExists(userId);
+        allow delete: if isValidId(userId) && isValidId(profileId) && isOwner(userId);
+      }
+
+      // Voice Conversation Sessions
+      match /conversations/{conversationId} {
+        allow get: if isValidId(userId) && isValidId(conversationId) && isOwner(userId);
+        allow list: if isOwner(userId) && existing().userId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(conversationId)
+          && isOwner(userId)
+          && isValidConversationDoc(incoming(), userId, conversationId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+        allow update: if isValidId(userId) && isValidId(conversationId)
+          && isOwner(userId)
+          && isValidConversationDoc(incoming(), userId, conversationId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['deleted', 'updatedAtMs', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'speaker1Lang', 'speaker2Lang', 'turns', 'deleted',
+              'updatedAtMs', 'updatedAt'
+            ])
+          )
+          && parentUserExists(userId);
+        allow delete: if isValidId(userId) && isValidId(conversationId) && isOwner(userId);
+      }
+    }
+  }
+}

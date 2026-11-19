@@ -1,0 +1,591 @@
+openapi: 3.1.0
+info:
+  title: EduZone Linguaflow Shared Translation & Sync API
+  version: 1.1.0
+  description: |
+    Centralized backend API powering both EduZone Linguaflow Web and EduZone Linguaflow Native Android.
+    All AI provider keys (GEMINI_API_KEY, DEEPL_API_KEY) remain strictly server-side.
+    User-scoped persistence and cross-device sync require Firebase ID Token Bearer authentication.
+servers:
+  - url: https://ais-dev-w6ussora6ildia7ipquthz-496673436177.asia-southeast1.run.app
+    description: Active Cloud Run Preview Environment
+  - url: http://localhost:3000
+    description: Local Development Server
+components:
+  securitySchemes:
+    FirebaseBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Firebase Auth ID Token obtained from Google Sign-In on Web or Android.
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          enum:
+            - UNAUTHORIZED
+            - INVALID_INPUT
+            - INVALID_ID
+            - FILE_REQUIRED
+            - INVALID_FILE
+            - FILE_TOO_LARGE
+            - RATE_LIMIT_EXCEEDED
+            - REQUEST_TIMEOUT
+            - QUOTA_EXCEEDED
+            - PROVIDER_NOT_CONFIGURED
+            - SERVICE_UNAVAILABLE
+            - NOT_FOUND
+            - INTERNAL_ERROR
+        requestId:
+          type: string
+    TranslationRequest:
+      type: object
+      required: [text, targetLang]
+      properties:
+        text:
+          type: string
+          maxLength: 50000
+        sourceLang:
+          type: string
+          default: auto
+        targetLang:
+          type: string
+        tone:
+          type: string
+          enum: [natural, formal, informal, professional, academic, business, casual, technical, custom]
+          default: natural
+        formality:
+          type: string
+          enum: [default, more_formal, less_formal]
+          default: default
+        context:
+          type: string
+          maxLength: 500
+        customToneDescription:
+          type: string
+          maxLength: 500
+        provider:
+          type: string
+          enum: [gemini, deepl]
+          default: gemini
+        glossaryTerms:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            required: [sourceTerm, targetTerm]
+            properties:
+              sourceTerm:
+                type: string
+              targetTerm:
+                type: string
+        styleProfile:
+          type: object
+          properties:
+            writingStyle:
+              type: string
+            preferredTerminology:
+              type: string
+            customInstructions:
+              type: string
+    HistoryItem:
+      type: object
+      required: [id, sourceText, translatedText, sourceLang, targetLang, tone, provider, favorite, saved, createdAt]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        sourceText:
+          type: string
+        translatedText:
+          type: string
+        sourceLang:
+          type: string
+        detectedSourceLang:
+          type: string
+        targetLang:
+          type: string
+        tone:
+          type: string
+        context:
+          type: string
+        provider:
+          type: string
+          enum: [gemini, deepl]
+        favorite:
+          type: boolean
+        saved:
+          type: boolean
+        deleted:
+          type: boolean
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+    Glossary:
+      type: object
+      required: [id, name, sourceLang, targetLang, enabled, terms, updatedAt]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+        sourceLang:
+          type: string
+        targetLang:
+          type: string
+        enabled:
+          type: boolean
+        deleted:
+          type: boolean
+        updatedAt:
+          type: integer
+        terms:
+          type: array
+          items:
+            type: object
+            required: [id, sourceTerm, targetTerm]
+            properties:
+              id:
+                type: string
+              sourceTerm:
+                type: string
+              targetTerm:
+                type: string
+              notes:
+                type: string
+paths:
+  /api/health:
+    get:
+      summary: Server & database health readiness probe
+      responses:
+        "200":
+          description: Service health status and configured limits
+  /api/languages:
+    get:
+      summary: List built-in supported languages
+      responses:
+        "200":
+          description: Supported language list
+  /api/providers:
+    get:
+      summary: List configured AI translation providers
+      responses:
+        "200":
+          description: Provider availability metadata
+  /api/detect:
+    post:
+      summary: Detect source language of a text snippet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  maxLength: 10000
+      responses:
+        "200":
+          description: Detected language code, name, confidence, and RTL flag
+        "400":
+          description: Invalid input
+  /api/translate:
+    post:
+      summary: Translate text with tone, formality, context, style profile, and glossary constraints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TranslationRequest"
+      responses:
+        "200":
+          description: Translated text result
+        "400":
+          description: Validation error
+        "429":
+          description: Rate limit or upstream quota exceeded
+  /api/translate/alternatives:
+    post:
+      summary: Generate nuanced alternative translations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TranslationRequest"
+      responses:
+        "200":
+          description: Alternative phrasings list
+  /api/dictionary:
+    post:
+      summary: Lookup contextual bilingual dictionary entry for a word/phrase
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [word, targetLang]
+              properties:
+                word:
+                  type: string
+                sentenceContext:
+                  type: string
+                sourceLang:
+                  type: string
+                targetLang:
+                  type: string
+      responses:
+        "200":
+          description: Structured contextual dictionary entry
+  /api/translate/document:
+    post:
+      summary: Upload and translate PDF, DOCX, PPTX, TXT, or HTML documents (max 15MB)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, targetLang]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                sourceLang:
+                  type: string
+                targetLang:
+                  type: string
+                tone:
+                  type: string
+                context:
+                  type: string
+                glossaryTerms:
+                  type: string
+      responses:
+        "200":
+          description: Translated document preview + downloadable base64 artifact
+        "413":
+          description: File exceeds 15MB limit
+  /api/translate/image:
+    post:
+      summary: Multimodal OCR and bounding-box image translation (JPG/PNG/WEBP, max 10MB)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, targetLang]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                sourceLang:
+                  type: string
+                targetLang:
+                  type: string
+      responses:
+        "200":
+          description: Extracted OCR regions with normalized 0-1000 coordinates and translations
+  /api/translate/voice:
+    post:
+      summary: Transcribe and translate uploaded/recorded speech audio (max 15MB)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, targetLang]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                sourceLang:
+                  type: string
+                targetLang:
+                  type: string
+      responses:
+        "200":
+          description: Verbatim transcript and translated speech text
+  /api/tts:
+    post:
+      summary: Synthesize natural speech WAV audio (base64)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  maxLength: 2500
+                voiceName:
+                  type: string
+                  enum: [Kore, Puck, Charon, Fenrir, Zephyr]
+                styleHint:
+                  type: string
+      responses:
+        "200":
+          description: Base64-encoded PCM/WAV audio
+  /api/profile:
+    get:
+      summary: Get or initialize authenticated user profile
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: User profile
+        "401":
+          description: Unauthorized
+    put:
+      summary: Update authenticated user profile displayName, photoUrl, platformLastSeen
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Updated user profile
+  /api/preferences:
+    get:
+      summary: Fetch user translation settings and defaults
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Stored preferences
+    put:
+      summary: Save user translation settings and defaults
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Saved preferences
+  /api/history:
+    get:
+      summary: List user translation history
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: User history items
+    post:
+      summary: Create or upsert history entry
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "201":
+          description: Saved history item
+    delete:
+      summary: Soft-delete all history entries for current user
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Cleared count
+  /api/history/{id}:
+    put:
+      summary: Update history item (e.g. favorite/saved toggle)
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated item
+    delete:
+      summary: Soft-delete a single history item
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Soft delete confirmation
+  /api/saved-translations:
+    get:
+      summary: List bookmarked/saved translations
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Saved translations list
+    post:
+      summary: Create or update saved translation phrase
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "201":
+          description: Saved translation item
+  /api/saved-translations/{id}:
+    delete:
+      summary: Remove saved translation
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted confirmation
+  /api/glossaries:
+    get:
+      summary: List user glossaries
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: User glossaries list
+    post:
+      summary: Create or update glossary
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "201":
+          description: Saved glossary
+  /api/glossaries/{id}:
+    put:
+      summary: Update glossary by ID
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated glossary
+    delete:
+      summary: Soft-delete glossary by ID
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted confirmation
+  /api/style-profiles:
+    get:
+      summary: List user style profiles
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Style profiles list
+    post:
+      summary: Create or update style profile
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "201":
+          description: Saved style profile
+  /api/style-profiles/{id}:
+    put:
+      summary: Update style profile by ID
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated style profile
+    delete:
+      summary: Soft-delete style profile by ID
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted confirmation
+  /api/conversations:
+    get:
+      summary: List saved Conversation Mode sessions
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Conversation sessions list
+    post:
+      summary: Save a Conversation Mode session
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "201":
+          description: Saved conversation session
+  /api/conversations/{id}:
+    delete:
+      summary: Soft-delete Conversation Mode session
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted confirmation
+  /api/sync/pull:
+    get:
+      summary: Pull full or delta synchronized user state (Web & Android)
+      security:
+        - FirebaseBearerAuth: []
+      parameters:
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Complete or delta sync snapshot including soft-delete tombstones
+  /api/sync/push:
+    post:
+      summary: Push local Web/Android mutations in one atomic sync batch
+      security:
+        - FirebaseBearerAuth: []
+      responses:
+        "200":
+          description: Sync acceptance summary

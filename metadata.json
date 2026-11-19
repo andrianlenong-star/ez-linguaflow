@@ -1,0 +1,10 @@
+{
+  "name": "Linguaflow — Advanced AI Translator",
+  "description": "Professional multilingual AI translator for text, documents, images, and voice with integrated context dictionary, custom glossaries, style profiles, and translation history.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
