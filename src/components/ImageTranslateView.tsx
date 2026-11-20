@@ -2,14 +2,19 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import {
   AlertTriangle,
   Bookmark,
+  Check,
+  Copy,
   Download,
   Eye,
   Image as ImageIcon,
   Loader2,
   RefreshCw,
+  Square,
   Upload,
+  Volume2,
 } from 'lucide-react';
 import { translateImageApi, translateTextApi } from '../lib/api/translatorClient.ts';
+import type { PlaybackStatus } from '../lib/audio/ttsPlayer.ts';
 import type { LanguageConfig } from '../shared/languages.ts';
 import type {
   AppSettings,
@@ -17,15 +22,24 @@ import type {
   ImageRegion,
   ImageTranslationResult,
 } from '../shared/types.ts';
-import { validateImageFile } from '../utils/text.ts';
+import { normalizeImageTranslationResponse, validateImageFile } from '../utils/text.ts';
 import { LanguageSelector } from './LanguageSelector.tsx';
 
 interface ImageTranslateViewProps {
   settings: AppSettings;
+  playbackStatus?: PlaybackStatus;
   onSaveHistory?: (item: HistoryItem) => Promise<void>;
+  onSpeakText?: (text: string, langCode: string) => void;
+  onStopSpeak?: () => void;
 }
 
-export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateViewProps) {
+export function ImageTranslateView({
+  settings,
+  playbackStatus = 'idle',
+  onSaveHistory,
+  onSpeakText,
+  onStopSpeak,
+}: ImageTranslateViewProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [sourceLang, setSourceLang] = useState(settings.defaultSourceLang || 'auto');
@@ -40,9 +54,16 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
   const [fullTranslatedText, setFullTranslatedText] = useState('');
   const [viewMode, setViewMode] = useState<'translated' | 'original'>('translated');
   const [savedNotice, setSavedNotice] = useState(false);
+  const [copiedNotice, setCopiedNotice] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const requestSeqRef = useRef(0);
   const extraLanguages: LanguageConfig[] = settings.customLanguages || [];
+
+  const safeRegions = Array.isArray(editableRegions) ? editableRegions : [];
+  const safeUnreadableSections = Array.isArray(result?.unreadableSections)
+    ? result.unreadableSections
+    : [];
 
   useEffect(() => {
     return () => {
@@ -52,15 +73,23 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
 
   function handleFileChange(file: File | undefined) {
     if (!file) return;
+    requestSeqRef.current += 1;
+    setLoading(false);
+    setRetranslating(false);
     setError(null);
     setResult(null);
     setEditableRegions([]);
     setFullOcrText('');
     setFullTranslatedText('');
     setSavedNotice(false);
-    const check = validateImageFile(file.name, file.size);
+    setCopiedNotice(false);
+
+    const check = validateImageFile(file.name || '', file.size ?? 0);
     if (!check.valid) {
-      setError(check.error || 'Invalid image file.');
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setSelectedFile(null);
+      setPreviewUrl(null);
+      setError(check.error || 'Unsupported image format. Please upload a supported image.');
       return;
     }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -76,30 +105,47 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
   }
 
   async function handleTranslateImage() {
-    if (!selectedFile) return;
+    if (!selectedFile) {
+      setError('Please select an image first.');
+      return;
+    }
+    const reqId = ++requestSeqRef.current;
     setLoading(true);
     setError(null);
     setSavedNotice(false);
+    setCopiedNotice(false);
     try {
-      const res = await translateImageApi({
+      const rawRes = await translateImageApi({
         file: selectedFile,
         sourceLang,
         targetLang,
       });
-      setResult(res);
-      setEditableRegions(res.regions);
-      setFullOcrText(
-        res.fullOriginalText || res.regions.map((r) => r.originalText).filter(Boolean).join('\n'),
-      );
-      setFullTranslatedText(
-        res.fullTranslatedText ||
-          res.regions.map((r) => r.translatedText).filter(Boolean).join('\n'),
-      );
+      if (reqId !== requestSeqRef.current) return;
+
+      const normalized = normalizeImageTranslationResponse(rawRes);
+      if (!normalized.ok) {
+        setError(normalized.error);
+        return;
+      }
+
+      const cleanResult = normalized.data;
+      setResult(cleanResult);
+      setEditableRegions(cleanResult.regions);
+      setFullOcrText(cleanResult.fullOriginalText);
+      setFullTranslatedText(cleanResult.fullTranslatedText);
       setViewMode('translated');
+
+      if (!normalized.hasReadableText) {
+        setError('No readable text was found in this image.');
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Image translation failed.');
+      if (reqId !== requestSeqRef.current) return;
+      const msg = err instanceof Error ? err.message : '';
+      setError(msg || 'Text extraction failed. Please try again.');
     } finally {
-      setLoading(false);
+      if (reqId === requestSeqRef.current) {
+        setLoading(false);
+      }
     }
   }
 
@@ -120,15 +166,20 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
   }
 
   async function handleRetranslateEditedOcr() {
-    if (editableRegions.length === 0 && !fullOcrText.trim()) return;
+    if (safeRegions.length === 0 && !fullOcrText.trim()) {
+      setError('No readable text was found in this image.');
+      return;
+    }
+    const reqId = ++requestSeqRef.current;
     setRetranslating(true);
     setError(null);
     setSavedNotice(false);
+    setCopiedNotice(false);
     try {
-      if (editableRegions.length > 0) {
+      if (safeRegions.length > 0) {
         const updatedRegions = await Promise.all(
-          editableRegions.map(async (region) => {
-            const clean = region.originalText.trim();
+          safeRegions.map(async (region) => {
+            const clean = (region.originalText || '').trim();
             if (!clean) {
               return { ...region, translatedText: '' };
             }
@@ -141,12 +192,17 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
               context: 'OCR image text region',
               provider: settings.provider,
             });
-            return { ...region, translatedText: translated.translatedText };
+            return {
+              ...region,
+              translatedText:
+                typeof translated?.translatedText === 'string' ? translated.translatedText : '',
+            };
           }),
         );
+        if (reqId !== requestSeqRef.current) return;
         setEditableRegions(updatedRegions);
-        setFullOcrText(updatedRegions.map((r) => r.originalText).join('\n'));
-        setFullTranslatedText(updatedRegions.map((r) => r.translatedText).join('\n'));
+        setFullOcrText(updatedRegions.map((r) => r.originalText || '').join('\n'));
+        setFullTranslatedText(updatedRegions.map((r) => r.translatedText || '').join('\n'));
       } else {
         const translated = await translateTextApi({
           text: fullOcrText.trim(),
@@ -157,22 +213,56 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
           context: 'OCR extracted image text',
           provider: settings.provider,
         });
-        setFullTranslatedText(translated.translatedText);
+        if (reqId !== requestSeqRef.current) return;
+        setFullTranslatedText(
+          typeof translated?.translatedText === 'string' ? translated.translatedText : '',
+        );
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to re-translate edited OCR text.');
+      if (reqId !== requestSeqRef.current) return;
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : 'Translation failed. Please check your connection and try again.',
+      );
     } finally {
-      setRetranslating(false);
+      if (reqId === requestSeqRef.current) {
+        setRetranslating(false);
+      }
+    }
+  }
+
+  function getResolvedTranslatedText(): string {
+    return (
+      (fullTranslatedText || '').trim() ||
+      safeRegions
+        .map((r) => r.translatedText || '')
+        .filter((t) => t.trim().length > 0)
+        .join('\n')
+    );
+  }
+
+  async function handleCopyTranslatedText() {
+    const trans = getResolvedTranslatedText();
+    if (!trans || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(trans);
+      setCopiedNotice(true);
+      setTimeout(() => setCopiedNotice(false), 1800);
+    } catch {
+      // Clipboard write unavailable in restricted context
     }
   }
 
   async function handleSaveToHistory() {
     if (!onSaveHistory || !result) return;
     const orig =
-      fullOcrText.trim() || editableRegions.map((r) => r.originalText).filter(Boolean).join('\n');
-    const trans =
-      fullTranslatedText.trim() ||
-      editableRegions.map((r) => r.translatedText).filter(Boolean).join('\n');
+      (fullOcrText || '').trim() ||
+      safeRegions
+        .map((r) => r.originalText || '')
+        .filter((t) => t.trim().length > 0)
+        .join('\n');
+    const trans = getResolvedTranslatedText();
     if (!orig || !trans) return;
 
     await onSaveHistory({
@@ -196,17 +286,18 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
     if (!result) return;
     const lines = [
       `EduZone Linguaflow Image Translation (${selectedFile?.name || 'image'})`,
-      `Detected Language: ${result.detectedSourceLang}`,
+      `Detected Language: ${result.detectedSourceLang || 'Unknown'}`,
       '',
       '--- Translated Regions ---',
-      ...(editableRegions.length > 0
-        ? editableRegions.map(
-            (r, i) => `${i + 1}. [Original] ${r.originalText}\n   [Translated] ${r.translatedText}`,
+      ...(safeRegions.length > 0
+        ? safeRegions.map(
+            (r, i) =>
+              `${i + 1}. [Original] ${r.originalText || ''}\n   [Translated] ${r.translatedText || ''}`,
           )
-        : [`[Original]\n${fullOcrText}\n\n[Translated]\n${fullTranslatedText}`]),
+        : [`[Original]\n${fullOcrText || ''}\n\n[Translated]\n${fullTranslatedText || ''}`]),
     ];
-    if (result.unreadableSections.length > 0) {
-      lines.push('', '--- Unreadable / Unclear Sections ---', ...result.unreadableSections);
+    if (safeUnreadableSections.length > 0) {
+      lines.push('', '--- Unreadable / Unclear Sections ---', ...safeUnreadableSections);
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/plain; charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -229,7 +320,8 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
 
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      for (const region of editableRegions) {
+      for (const region of safeRegions) {
+        if (!Array.isArray(region.box2d) || region.box2d.length !== 4) continue;
         const [ymin, xmin, ymax, xmax] = region.box2d;
         if (ymax <= ymin || xmax <= xmin) continue;
         const x = (xmin / 1000) * canvas.width;
@@ -250,7 +342,7 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
 
         const wrapLines = (size: number): string[] => {
           ctx.font = `600 ${size}px sans-serif`;
-          const words = region.translatedText.trim().split(/\s+/).filter(Boolean);
+          const words = (region.translatedText || '').trim().split(/\s+/).filter(Boolean);
           if (words.length === 0) return [];
           const out: string[] = [];
           let current = words[0];
@@ -358,7 +450,7 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
             <button
               type="button"
               onClick={() => void handleTranslateImage()}
-              disabled={!selectedFile || loading}
+              disabled={loading}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -409,7 +501,7 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 {result
-                  ? `Detected: ${result.detectedSourceLang} · ${editableRegions.length} text regions`
+                  ? `Detected: ${result.detectedSourceLang || 'Unknown'} · ${safeRegions.length} text regions`
                   : selectedFile?.name}
               </span>
 
@@ -450,7 +542,8 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
 
               {result &&
                 viewMode === 'translated' &&
-                editableRegions.map((region) => {
+                safeRegions.map((region) => {
+                  if (!Array.isArray(region.box2d) || region.box2d.length !== 4) return null;
                   const [ymin, xmin, ymax, xmax] = region.box2d;
                   if (ymax <= ymin || xmax <= xmin) return null;
                   return (
@@ -462,10 +555,10 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
                         width: `${Math.max(8, (xmax - xmin) / 10)}%`,
                         minHeight: `${Math.max(4, (ymax - ymin) / 10)}%`,
                       }}
-                      title={`Original: ${region.originalText}`}
+                      title={`Original: ${region.originalText || ''}`}
                       className="absolute z-10 bg-slate-950/95 text-white text-[11px] sm:text-xs leading-snug px-2 py-1 rounded border border-blue-400/60 shadow-sm overflow-hidden flex items-center"
                     >
-                      {region.translatedText}
+                      {region.translatedText || ''}
                     </div>
                   );
                 })}
@@ -486,12 +579,53 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
                   <button
                     type="button"
                     onClick={() => void handleRetranslateEditedOcr()}
-                    disabled={retranslating || (editableRegions.length === 0 && !fullOcrText.trim())}
+                    disabled={retranslating || (safeRegions.length === 0 && !fullOcrText.trim())}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${retranslating ? 'animate-spin' : ''}`} />
                     <span>{retranslating ? 'Translating...' : 'Translate Edited OCR'}</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyTranslatedText()}
+                    disabled={!getResolvedTranslatedText()}
+                    aria-label="Copy translated image text"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {copiedNotice ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                    <span>{copiedNotice ? 'Copied' : 'Copy'}</span>
+                  </button>
+                  {onSpeakText && (
+                    playbackStatus === 'playing' || playbackStatus === 'loading' ? (
+                      <button
+                        type="button"
+                        onClick={() => onStopSpeak?.()}
+                        aria-label="Stop speaking translated image text"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300"
+                      >
+                        <Square className="w-3.5 h-3.5" />
+                        <span>{playbackStatus === 'loading' ? 'Loading...' : 'Stop'}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const trans = getResolvedTranslatedText();
+                          if (trans) onSpeakText(trans, targetLang);
+                        }}
+                        disabled={!getResolvedTranslatedText()}
+                        aria-label="Listen to translated image text"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                        <span>Listen</span>
+                      </button>
+                    )
+                  )}
                   <button
                     type="button"
                     onClick={handleDownloadImagePng}
@@ -512,7 +646,7 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
                     <button
                       type="button"
                       onClick={() => void handleSaveToHistory()}
-                      disabled={savedNotice}
+                      disabled={savedNotice || !getResolvedTranslatedText()}
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
                     >
                       <Bookmark className="w-3.5 h-3.5" />
@@ -529,21 +663,21 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
               </p>
             )}
 
-            {result && result.unreadableSections.length > 0 && (
+            {result && safeUnreadableSections.length > 0 && (
               <div className="p-3 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-800 dark:text-amber-200 space-y-1">
                 <div className="flex items-center gap-1.5 font-semibold">
                   <AlertTriangle className="w-3.5 h-3.5" />
                   <span>Partially Unreadable Areas</span>
                 </div>
                 <ul className="list-disc pl-4 space-y-0.5">
-                  {result.unreadableSections.map((note, idx) => (
+                  {safeUnreadableSections.map((note, idx) => (
                     <li key={idx}>{note}</li>
                   ))}
                 </ul>
               </div>
             )}
 
-            {result && editableRegions.length === 0 && (
+            {result && safeRegions.length === 0 && (
               <div className="space-y-3">
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   No bounded text regions were detected, or you can enter/edit OCR text manually below and translate it:
@@ -576,16 +710,16 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
               </div>
             )}
 
-            {result && editableRegions.length > 0 && (
+            {result && safeRegions.length > 0 && (
               <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
-                {editableRegions.map((region, idx) => (
+                {safeRegions.map((region, idx) => (
                   <div
                     key={region.id}
                     className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 space-y-2"
                   >
                     <div className="flex items-center justify-between text-xs text-slate-400">
                       <span>Region {idx + 1}</span>
-                      <span>Confidence: {region.confidence}</span>
+                      <span>Confidence: {region.confidence || 'medium'}</span>
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
@@ -593,7 +727,7 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
                       </label>
                       <textarea
                         aria-label={`Edit OCR text for region ${idx + 1}`}
-                        value={region.originalText}
+                        value={region.originalText || ''}
                         onChange={(e) => handleRegionOriginalEdit(region.id, e.target.value)}
                         rows={2}
                         className="w-full px-2.5 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600"
@@ -605,7 +739,7 @@ export function ImageTranslateView({ settings, onSaveHistory }: ImageTranslateVi
                       </label>
                       <textarea
                         aria-label={`Edit translation for region ${idx + 1}`}
-                        value={region.translatedText}
+                        value={region.translatedText || ''}
                         onChange={(e) => handleRegionEdit(region.id, e.target.value)}
                         rows={2}
                         className="w-full px-2.5 py-1.5 text-sm rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600"

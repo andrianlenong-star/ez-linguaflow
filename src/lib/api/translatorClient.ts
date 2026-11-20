@@ -18,7 +18,10 @@ import type {
   VoiceTranslationResult,
 } from '../../shared/types.ts';
 import { resolveApiBaseUrl } from '../../utils/apiUrl.ts';
-import { formatHttpErrorMessage } from '../../utils/text.ts';
+import {
+  formatHttpErrorMessage,
+  normalizeImageTranslationResponse,
+} from '../../utils/text.ts';
 
 function getApiBaseUrl(): string {
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
@@ -73,13 +76,23 @@ export async function translateTextApi(
   payload: TranslationRequest,
   signal?: AbortSignal,
 ): Promise<TranslationResult> {
-  const res = await fetch(buildApiUrl('/api/translate'), {
-    method: 'POST',
-    headers: await buildAuthHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(payload),
-    signal,
-  });
-  return handleJsonResponse<TranslationResult>(res);
+  let res: Response;
+  try {
+    res = await fetch(buildApiUrl('/api/translate'), {
+      method: 'POST',
+      headers: await buildAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload),
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    throw new Error('Translation failed. Please check your connection and try again.');
+  }
+  const data = await handleJsonResponse<TranslationResult>(res);
+  if (!data || typeof data !== 'object' || typeof data.translatedText !== 'string') {
+    throw new Error('The translation service returned an unexpected response.');
+  }
+  return data;
 }
 
 export async function fetchAlternativesApi(
@@ -175,12 +188,22 @@ export async function translateImageApi(params: {
   formData.append('sourceLang', params.sourceLang);
   formData.append('targetLang', params.targetLang);
 
-  const res = await fetch(buildApiUrl('/api/translate/image'), {
-    method: 'POST',
-    headers: await buildAuthHeaders(),
-    body: formData,
-  });
-  return handleJsonResponse<ImageTranslationResult>(res);
+  let res: Response;
+  try {
+    res = await fetch(buildApiUrl('/api/translate/image'), {
+      method: 'POST',
+      headers: await buildAuthHeaders(),
+      body: formData,
+    });
+  } catch {
+    throw new Error('Translation failed. Please check your connection and try again.');
+  }
+  const raw = await handleJsonResponse<unknown>(res);
+  const normalized = normalizeImageTranslationResponse(raw);
+  if (!normalized.ok) {
+    throw new Error(normalized.error);
+  }
+  return normalized.data;
 }
 
 export async function translateVoiceApi(params: {

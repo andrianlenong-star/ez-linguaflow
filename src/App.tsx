@@ -653,7 +653,13 @@ function LinguaflowWorkspace({
           )}
 
           {activeView === 'images' && (
-            <ImageTranslateView settings={settings} onSaveHistory={handleSaveHistory} />
+            <ImageTranslateView
+              settings={settings}
+              playbackStatus={playbackStatus}
+              onSaveHistory={handleSaveHistory}
+              onSpeakText={(txt, lang) => handleSpeak(txt, lang)}
+              onStopSpeak={() => ttsRef.current?.stop()}
+            />
           )}
 
           {activeView === 'voice' && (

@@ -500,32 +500,59 @@ export async function translateImageWithGemini(params: {
   { maxRetries: 1, fallbackTimeoutMs: 25_000 },
   );
 
-  const parsed = safeParseModelJson<ImageTranslationResult>(response.text || '{}');
-  return {
-    detectedSourceLang: parsed.detectedSourceLang || 'Unknown',
-    regions: Array.isArray(parsed.regions)
-      ? parsed.regions.map((r, idx) => ({
-          id: r.id || `region-${idx + 1}`,
-          originalText: r.originalText || '',
-          translatedText: r.translatedText || '',
+  const rawText = (response.text || '').trim();
+  if (!rawText) {
+    throw new Error('Text extraction failed. Please try again.');
+  }
+
+  const parsed = safeParseModelJson<ImageTranslationResult>(rawText);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('The translation service returned an unexpected response.');
+  }
+
+  const clampBox = (val: unknown): number =>
+    typeof val === 'number' && Number.isFinite(val) ? Math.max(0, Math.min(1000, val)) : 0;
+
+  const regions = Array.isArray(parsed.regions)
+    ? parsed.regions
+        .filter((r) => Boolean(r) && typeof r === 'object')
+        .map((r, idx) => ({
+          id: typeof r.id === 'string' && r.id.trim() ? r.id : `region-${idx + 1}`,
+          originalText: typeof r.originalText === 'string' ? r.originalText : '',
+          translatedText: typeof r.translatedText === 'string' ? r.translatedText : '',
           box2d:
             Array.isArray(r.box2d) && r.box2d.length === 4
-              ? [
-                  Math.max(0, Math.min(1000, r.box2d[0])),
-                  Math.max(0, Math.min(1000, r.box2d[1])),
-                  Math.max(0, Math.min(1000, r.box2d[2])),
-                  Math.max(0, Math.min(1000, r.box2d[3])),
-                ]
-              : [0, 0, 0, 0],
+              ? ([
+                  clampBox(r.box2d[0]),
+                  clampBox(r.box2d[1]),
+                  clampBox(r.box2d[2]),
+                  clampBox(r.box2d[3]),
+                ] as [number, number, number, number])
+              : ([0, 0, 0, 0] as [number, number, number, number]),
           confidence:
             r.confidence === 'high' || r.confidence === 'medium' || r.confidence === 'low'
               ? r.confidence
               : 'medium',
         }))
+    : [];
+
+  return {
+    detectedSourceLang:
+      typeof parsed.detectedSourceLang === 'string' && parsed.detectedSourceLang.trim()
+        ? parsed.detectedSourceLang
+        : 'Unknown',
+    regions,
+    fullOriginalText:
+      typeof parsed.fullOriginalText === 'string' && parsed.fullOriginalText.trim()
+        ? parsed.fullOriginalText
+        : regions.map((r) => r.originalText).filter(Boolean).join('\n'),
+    fullTranslatedText:
+      typeof parsed.fullTranslatedText === 'string' && parsed.fullTranslatedText.trim()
+        ? parsed.fullTranslatedText
+        : regions.map((r) => r.translatedText).filter(Boolean).join('\n'),
+    unreadableSections: Array.isArray(parsed.unreadableSections)
+      ? parsed.unreadableSections.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
       : [],
-    fullOriginalText: parsed.fullOriginalText || '',
-    fullTranslatedText: parsed.fullTranslatedText || '',
-    unreadableSections: Array.isArray(parsed.unreadableSections) ? parsed.unreadableSections : [],
     modelUsed,
   };
 }

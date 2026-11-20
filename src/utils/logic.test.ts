@@ -16,6 +16,7 @@ import {
   countWords,
   formatHttpErrorMessage,
   normalizeAudioMimeType,
+  normalizeImageTranslationResponse,
   pickAudioRecordingFilename,
   safeParseModelJson,
   sanitizeUserText,
@@ -424,6 +425,7 @@ import { FAQ_ITEMS } from '../components/SeoLandingSection.tsx';
 test('SEO assets (robots.txt, sitemap.xml, vercel.json) are valid and non-shadowed', () => {
   const canonicalOrigin = 'https://ez-linguaflow-j4sf.vercel.app';
   const robotsTxt = fs.readFileSync(path.resolve('public/robots.txt'), 'utf8');
+  assert.ok(robotsTxt.includes('User-agent: Googlebot'));
   assert.ok(robotsTxt.includes('Allow: /'));
   assert.ok(robotsTxt.includes('Allow: /assets/'));
   assert.ok(robotsTxt.includes('Disallow: /api/'));
@@ -643,3 +645,66 @@ test('normalizeSpeakableText safely guards undefined, null, non-string, and blan
   assert.equal(normalizeSpeakableText('   \n\t  '), '');
   assert.equal(normalizeSpeakableText('  innovation  '), 'innovation');
 });
+
+test('normalizeImageTranslationResponse safely handles missing arrays, empty OCR, and malformed payloads', () => {
+  // Partial response missing regions and unreadableSections must NEVER leave undefined arrays
+  const partial = normalizeImageTranslationResponse({
+    detectedSourceLang: 'en',
+    fullOriginalText: 'Hello',
+    fullTranslatedText: 'Halo',
+  });
+  assert.equal(partial.ok, true);
+  if (partial.ok) {
+    assert.equal(partial.hasReadableText, true);
+    assert.deepEqual(partial.data.regions, []);
+    assert.deepEqual(partial.data.unreadableSections, []);
+    assert.equal(partial.data.regions.length, 0);
+    assert.equal(partial.data.unreadableSections.length, 0);
+  }
+
+  // Empty OCR response flags hasReadableText = false without crashing
+  const emptyOcr = normalizeImageTranslationResponse({
+    detectedSourceLang: 'Unknown',
+    regions: [],
+    fullOriginalText: '',
+    fullTranslatedText: '',
+    unreadableSections: [],
+  });
+  assert.equal(emptyOcr.ok, true);
+  if (emptyOcr.ok) {
+    assert.equal(emptyOcr.hasReadableText, false);
+  }
+
+  // Unexpected non-OCR JSON shape is rejected cleanly
+  assert.equal(normalizeImageTranslationResponse(null).ok, false);
+  assert.equal(normalizeImageTranslationResponse({ foo: 'bar' }).ok, false);
+
+  // Non-object region entries or bad box2d coordinates are sanitized without crashing
+  const dirtyRegions = normalizeImageTranslationResponse({
+    regions: [null, 'bad-entry', { originalText: 'Test', translatedText: 'Uji', box2d: [9999, -5, 'NaN', 500] }],
+    unreadableSections: [null, 42, 'Blurry corner'],
+  });
+  assert.equal(dirtyRegions.ok, true);
+  if (dirtyRegions.ok) {
+    assert.equal(dirtyRegions.data.regions.length, 1);
+    assert.deepEqual(dirtyRegions.data.regions[0].box2d, [1000, 0, 0, 500]);
+    assert.deepEqual(dirtyRegions.data.unreadableSections, ['Blurry corner']);
+    assert.equal(dirtyRegions.data.fullOriginalText, 'Test');
+    assert.equal(dirtyRegions.data.fullTranslatedText, 'Uji');
+  }
+});
+
+test('validateImageFile enforces supported formats and rejects empty or oversized files', () => {
+  assert.equal(validateImageFile('photo.jpg', 1024).valid, true);
+  assert.equal(validateImageFile('scan.png', 2048).valid, true);
+  assert.equal(validateImageFile('graphic.webp', 4096).valid, true);
+
+  const badExt = validateImageFile('vector.svg', 512);
+  assert.equal(badExt.valid, false);
+  assert.ok(badExt.error?.includes('Unsupported image format'));
+
+  const emptyFile = validateImageFile('blank.png', 0);
+  assert.equal(emptyFile.valid, false);
+  assert.ok(emptyFile.error?.includes('empty'));
+});
+

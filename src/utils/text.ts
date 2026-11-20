@@ -1,3 +1,5 @@
+import type { ImageRegion, ImageTranslationResult } from '../shared/types.ts';
+
 export interface TextToken {
   text: string;
   isWord: boolean;
@@ -106,7 +108,7 @@ export function validateImageFile(filename: string, sizeBytes: number, maxBytes 
     return {
       valid: false,
       ext,
-      error: `Unsupported image format ".${ext || 'unknown'}". Supported formats: JPG, JPEG, PNG, WEBP.`,
+      error: `Unsupported image format ".${ext || 'unknown'}". Please upload a supported image (JPG, JPEG, PNG, or WEBP).`,
     };
   }
   if (sizeBytes <= 0) {
@@ -229,4 +231,90 @@ export function safeParseModelJson<T>(rawText: string): T {
 
 export function normalizeSpeakableText(input: unknown): string {
   return typeof input === 'string' ? input.trim() : '';
+}
+
+export function normalizeImageTranslationResponse(raw: unknown):
+  | { ok: true; data: ImageTranslationResult; hasReadableText: boolean }
+  | { ok: false; error: string } {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: 'The translation service returned an unexpected response.' };
+  }
+
+  const obj = raw as Record<string, unknown>;
+  const hasExpectedShape =
+    'regions' in obj ||
+    'fullOriginalText' in obj ||
+    'fullTranslatedText' in obj ||
+    'detectedSourceLang' in obj;
+  if (!hasExpectedShape) {
+    return { ok: false, error: 'The translation service returned an unexpected response.' };
+  }
+
+  const clampCoord = (n: unknown): number =>
+    typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.min(1000, n)) : 0;
+
+  const rawRegions = Array.isArray(obj.regions) ? obj.regions : [];
+  const regions: ImageRegion[] = rawRegions
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+    .map((r, idx) => {
+      const box: [number, number, number, number] =
+        Array.isArray(r.box2d) && r.box2d.length === 4
+          ? [clampCoord(r.box2d[0]), clampCoord(r.box2d[1]), clampCoord(r.box2d[2]), clampCoord(r.box2d[3])]
+          : [0, 0, 0, 0];
+      const confidence =
+        r.confidence === 'high' || r.confidence === 'medium' || r.confidence === 'low'
+          ? r.confidence
+          : 'medium';
+      return {
+        id: typeof r.id === 'string' && r.id.trim() ? r.id : `region-${idx + 1}`,
+        originalText: typeof r.originalText === 'string' ? r.originalText : '',
+        translatedText: typeof r.translatedText === 'string' ? r.translatedText : '',
+        box2d: box,
+        confidence,
+      };
+    });
+
+  const unreadableSections = Array.isArray(obj.unreadableSections)
+    ? obj.unreadableSections.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+
+  const fullOriginalText =
+    typeof obj.fullOriginalText === 'string' && obj.fullOriginalText.trim()
+      ? obj.fullOriginalText
+      : regions
+          .map((r) => r.originalText)
+          .filter((t) => t.trim().length > 0)
+          .join('\n');
+
+  const fullTranslatedText =
+    typeof obj.fullTranslatedText === 'string' && obj.fullTranslatedText.trim()
+      ? obj.fullTranslatedText
+      : regions
+          .map((r) => r.translatedText)
+          .filter((t) => t.trim().length > 0)
+          .join('\n');
+
+  const detectedSourceLang =
+    typeof obj.detectedSourceLang === 'string' && obj.detectedSourceLang.trim()
+      ? obj.detectedSourceLang
+      : 'Unknown';
+
+  const hasReadableText = Boolean(
+    fullOriginalText.trim() ||
+      fullTranslatedText.trim() ||
+      regions.some((r) => r.originalText.trim().length > 0 || r.translatedText.trim().length > 0),
+  );
+
+  return {
+    ok: true,
+    hasReadableText,
+    data: {
+      detectedSourceLang,
+      regions,
+      fullOriginalText,
+      fullTranslatedText,
+      unreadableSections,
+      modelUsed: typeof obj.modelUsed === 'string' ? obj.modelUsed : undefined,
+    },
+  };
 }
