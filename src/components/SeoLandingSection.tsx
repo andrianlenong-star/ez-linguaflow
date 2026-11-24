@@ -66,7 +66,7 @@ export function SeoHeroHeader({ onFocusTranslator }: { onFocusTranslator: () => 
         <ol className="flex flex-wrap items-center gap-1.5">
           <li>
             <a
-              href="https://ez-linguaflow-j4sf.vercel.app/"
+              href="https://ez-linguaflow-sus9.vercel.app/"
               className="hover:text-slate-900 dark:hover:text-slate-100 hover:underline"
             >
               Beranda

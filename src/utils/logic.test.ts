@@ -423,7 +423,7 @@ import path from 'node:path';
 import { FAQ_ITEMS } from '../components/SeoLandingSection.tsx';
 
 test('SEO assets (robots.txt, sitemap.xml, vercel.json) are valid and non-shadowed', () => {
-  const canonicalOrigin = 'https://ez-linguaflow-j4sf.vercel.app';
+  const canonicalOrigin = 'https://ez-linguaflow-sus9.vercel.app';
   const robotsTxt = fs.readFileSync(path.resolve('public/robots.txt'), 'utf8');
   assert.ok(robotsTxt.includes('User-agent: Googlebot'));
   assert.ok(robotsTxt.includes('Allow: /'));
@@ -445,7 +445,7 @@ test('SEO assets (robots.txt, sitemap.xml, vercel.json) are valid and non-shadow
 });
 
 test('index.html contains valid Indonesian SEO metadata and Schema.org JSON-LD matching visible FAQ', () => {
-  const canonicalUrl = 'https://ez-linguaflow-j4sf.vercel.app/';
+  const canonicalUrl = 'https://ez-linguaflow-sus9.vercel.app/';
   const html = fs.readFileSync(path.resolve('index.html'), 'utf8');
 
   assert.ok(html.includes('<html lang="id">'));
@@ -545,7 +545,7 @@ test('ensureWavBase64 wraps raw PCM with RIFF header and preserves existing WAV 
 import { isAllowedCorsOrigin } from '../../server/app.ts';
 
 test('isAllowedCorsOrigin allows same-origin requests behind reverse proxies via X-Forwarded-Host', () => {
-  const allowedOrigins = ['https://ez-linguaflow-j4sf.vercel.app'];
+  const allowedOrigins = ['https://ez-linguaflow-sus9.vercel.app'];
 
   // Proxied AI Studio preview where Nginx rewrites Host to localhost:3000 and sets X-Forwarded-Host
   assert.equal(
@@ -561,7 +561,7 @@ test('isAllowedCorsOrigin allows same-origin requests behind reverse proxies via
   // Explicit allowlisted production origin
   assert.equal(
     isAllowedCorsOrigin({
-      origin: 'https://ez-linguaflow-j4sf.vercel.app',
+      origin: 'https://ez-linguaflow-sus9.vercel.app',
       host: 'internal-vercel-host',
       allowedOrigins,
     }),

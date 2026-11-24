@@ -8,4 +8,4 @@ Allow: /
 Allow: /assets/
 Disallow: /api/
 
-Sitemap: https://ez-linguaflow-j4sf.vercel.app/sitemap.xml
+Sitemap: https://ez-linguaflow-sus9.vercel.app/sitemap.xml

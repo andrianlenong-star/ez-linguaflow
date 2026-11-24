@@ -27,7 +27,7 @@ export function formatAuthErrorMessage(
       (typeof window !== 'undefined' ? window.location.hostname : 'domain ini');
     return [
       `Login Google diblokir karena domain "${host}" belum didaftarkan di Firebase Authentication (project: ${firebaseProjectId}).`,
-      `Cara mengatasinya: Buka Firebase Console → Authentication → Settings → Authorized domains → klik Add domain → masukkan "${host}" (dan juga "ez-linguaflow-j4sf.vercel.app").`,
+      `Cara mengatasinya: Buka Firebase Console → Authentication → Settings → Authorized domains → klik Add domain → masukkan "${host}" (dan juga "ez-linguaflow-sus9.vercel.app").`,
     ].join('\n');
   }
 
